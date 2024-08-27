@@ -15,6 +15,11 @@ class PIDController:
       # self.process_variable = process_variable #going to remove this
       self.power = power
       self.set_point = 0
+      
+      ##stall detection
+      self.error_not_decreasing_count = 0
+      self.stalled = False
+      self.previous_speed = 0
         
    def handle_proportional(self,error):
       return self.proportional_constant * error
@@ -43,6 +48,12 @@ class PIDController:
       d= self.handle_derivative(error)
       return p+i+d
    
+   def abs_error_is_decreasing(self,current_error):
+      return abs(current_error)<abs(self.previous)
+   
+   def magnitude_of_speed_above_set_point(self,speed):
+      return abs(speed)>abs(self.set_point)
+   
    def update(self,speed):
       if(self.set_point==0):
          #consider putting in a reset method to do this
@@ -51,9 +62,19 @@ class PIDController:
          self.previous = 0
          return self.power
       error = speed-self.set_point
+      if(self.abs_error_is_decreasing(error) or self.magnitude_of_speed_above_set_point(speed)):
+         self.error_not_decreasing_count=0
+      else:
+         self.error_not_decreasing_count+=1
+      if(abs(speed)<abs(self.set_point/2) and self.error_not_decreasing_count>5):
+         self.stalled = True
+      else:
+         self.stalled = False
       adjustment = self.get_value(error)
       self.power = self.power-adjustment
-      return self.power
+      self.previous_speed = speed
+      return max(0.6,self.power)
+
    
    def set_point(self,set_point):
       self.set_point = set_point

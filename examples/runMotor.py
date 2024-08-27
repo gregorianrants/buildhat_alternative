@@ -20,10 +20,19 @@ with (
         # the motor outputs data pretty quick. note the output_data_rate (its in Hz) parameter above when setting up
         # output data rate must be 100hz or bellow.
         
-        left_motor.add_listener(print)
+        def stop(data):
+           print(data)
+           if(left_motor.isStalled()):
+               print('stalled')
+               left_motor.run(0)
         
-        left_motor.run(degrees_per_second=360)
-        time.sleep(5)
+        
+        
+        left_motor.run(degrees_per_second=180)
+       
+        left_motor.add_listener(stop)
+        time.sleep(10)
+            
         left_motor.run(0)
        
     except KeyboardInterrupt:

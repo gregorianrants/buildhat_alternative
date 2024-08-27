@@ -32,7 +32,7 @@ class Motor:
     def __init__(self, port, ser, direction=1, output_data_rate=1):
         self.port_letter = port
         self.port_index = self.PORTS.index(port)
-        self.mode = 0
+        self.mode = 'speed'
         self.ser = ser
         self.listeners = []
         self.count = 0
@@ -40,18 +40,25 @@ class Motor:
         self.wheel_diameter = 276  # mm
         # self.PIDcontroller = PIDController(0.001,0,0.02)
         self.PIDcontroller = PIDController(0.00076, 0.003, 0.0153)
+        self.anglePIDcontoller = PIDController(0.0001,0,0)
         self.speed = 0
         self.selrate = 10
         self.ser.add_motor(self)
         self.set_combi_mode()
         self.set_plimit()
-
+        
         self.received_data_rate = 1000 / self.selrate
         self.data_emitter = DataEmitter(
             in_rate=self.received_data_rate,
             out_rate=output_data_rate,
             formatter=self.format_data,
         )
+        
+        self.starting_angle = None
+        
+        
+        #monkey patches
+        self.handle_data = self.handle_data_initial
         # for some reason if i dont put a delay here the buildhat outputs zero speed
         # for a about 3 seconds even if wheels are moving.  this causes large measured error
         # in pid which sets max pwm and wheels go to fast.
@@ -79,7 +86,7 @@ class Motor:
         self.write(f"select")
         self.write(f"combi 0 1 0 2 0 3 0")
         self.write(f"select 0; selrate 10")
-
+        
     def set_plimit(self):
         self.write(f"plimit 1")
 
@@ -97,25 +104,33 @@ class Motor:
         data = {
             "port": self.port_letter,
             "target_speed_deg/sec": self.PIDcontroller.set_point,
-            "speed_deg/sec": speed * 10,
-            "speed_mm/s": speed * (1 / 36) * 276.401,
-            "pos": pos,
+            "speed_deg/sec": self.direction * speed * 10,
+            "speed_mm/s": self.direction * speed * (1 / 36) * 276.401,
+            "pos": pos-self.starting_angle,
             "apos": apos,
             "time": time.time(),
         }
         return data
+    
+    def handle_data_initial(self,speed, pos, apos):
+        self.starting_angle = pos
+        print('my position is clear', self.starting_angle)
+        self.handle_data = self.handle_data_later
 
-    def handle_data(self, speed, pos, apos):
+    def handle_data_later(self, speed, pos, apos):
         # we are converting the speed output by the build hat which is in 10 degrees per second
         # yes you read that right i said "10"
         # to degrees per second.
         self.data_emitter.handleData(speed, pos, apos)
         speed = self.direction * speed * 10
-        self.update(speed)
+        self.update(speed,0)
 
-    def update(self, speed):
-        updated_pwm = self.PIDcontroller.update(speed)
-        self.pwm(updated_pwm)
+    def update(self, speed,angle):
+        if(self.mode=='speed'):
+            updated_pwm = self.PIDcontroller.update(speed)
+            self.pwm(updated_pwm)
+        else:
+            updated_speed = self.anglePIDcontoller()
 
     """utility methods"""
 
@@ -149,11 +164,17 @@ class Motor:
         calling run again will switch to a speed control mode.
         """
         pass
+  
+    def isStalled(self):
+        return self.PIDcontroller.stalled
 
     # we have changed the speed entered here from mm_per_second to degrees per second.
     def run(self, degrees_per_second):
         self.speed = degrees_per_second
         self.PIDcontroller.set_point = self.speed
+        
+    def runAngle(self,angle):
+        self.anglePIDcontoller.set_point = angle
 
     def __str__(self):
         return f"Motor PortIndex:{self.port_index}, Port: {self.port_letter}"
